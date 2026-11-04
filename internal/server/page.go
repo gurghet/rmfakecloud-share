@@ -99,7 +99,7 @@ var pageTmpl = template.Must(template.New("page").Parse(`<!doctype html>
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 {{if .AutoReload}}<meta http-equiv="refresh" content="5">{{end}}
-<title>reMarkable note</title>
+<title>Shared note</title>
 <style nonce="{{.Nonce}}">
 :root{color-scheme:light dark;--bg:#fbfbfa;--fg:#1c1c1e;--muted:#6b6b70;--card:#fff;--line:#e2e2e0;--accent:#0b5fff;--warn:#8a4b00;--warnbg:#fff4e0;--err:#9b1c1c;--errbg:#fdecec}
 @media (prefers-color-scheme:dark){:root{--bg:#121214;--fg:#e8e8ea;--muted:#9a9aa2;--card:#1b1b1f;--line:#2f2f35;--accent:#7aa7ff;--warn:#f0c27a;--warnbg:#2b2214;--err:#ff9b9b;--errbg:#2e1818}}
@@ -133,7 +133,7 @@ footer{margin-top:24px;font-size:.8rem;color:var(--muted)}
 <body>
 <main>
 <header>
-<h1>Note shared from reMarkable</h1>
+<h1>Note shared from a reMarkable tablet</h1>
 <p>{{.Created}} · {{len .PageNums}} page{{if ne (len .PageNums) 1}}s{{end}}</p>
 </header>
 {{if .Pending}}<div class="status pending" role="status">Converting your handwriting to text… this page refreshes by itself.</div>{{end}}
@@ -152,7 +152,7 @@ footer{margin-top:24px;font-size:.8rem;color:var(--muted)}
 {{range .PageNums}}<img src="pages/{{.}}.png" alt="Page {{.}}" loading="lazy">
 {{end}}</div>
 </details>
-{{if .Done}}<footer>Transcribed by {{if .Model}}{{.Model}}{{else}}a language model{{end}}. Handwriting recognition can be wrong, so check against the original pages.</footer>{{end}}
+<footer>{{if .Done}}Transcribed by {{if .Model}}{{.Model}}{{else}}a language model{{end}}. Handwriting recognition can be wrong, so check against the original pages.<br>{{end}}Served by rmfakecloud-share, an independent open-source project, not affiliated with reMarkable AS.</footer>
 </main>
 {{if .Done}}<script nonce="{{.Nonce}}">
 (function(){var b=document.getElementById('copy');if(!b||!navigator.clipboard)return;b.hidden=false;

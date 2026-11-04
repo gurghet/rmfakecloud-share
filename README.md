@@ -1,18 +1,28 @@
 # rmfakecloud-share
 
-reMarkable tablets have a toolbar button, **Convert and Share**, that normally
-needs a paid reMarkable Connect subscription. If you host your own cloud with
-[rmfakecloud](https://github.com/ddvk/rmfakecloud) the button is missing.
+> reMarkable and Connect are trademarks of reMarkable AS. This project is not
+> affiliated with or endorsed by reMarkable AS.
 
-`rmfakecloud-share` is a small sidecar service that brings it back. You tap the
-button, the tablet shows a QR code, and scanning it opens a web page with your
-handwriting transcribed to Markdown by Claude, next to the original pages.
+The reMarkable tablet has a toolbar button, **Convert and Share**, that sends the
+current pages to a server and shows the returned link as a QR code. Servers such as
+[rmfakecloud](https://github.com/ddvk/rmfakecloud), which many people run to sync
+with their own server, do not implement that endpoint.
+
+`rmfakecloud-share` is a small self-hosted sidecar service that implements it for
+people who sync with their own server. Scanning the QR code opens a web page with
+your handwriting transcribed to Markdown by Claude, next to the original pages. It
+does not modify the tablet's software and does not contact any reMarkable service.
 
 > **Privacy: page images are sent to Anthropic.** When `ANTHROPIC_API_KEY` is
 > set, every page you share is uploaded to the Anthropic Messages API for
 > transcription. Do not share pages you are not willing to send to a third
 > party. Without a key, nothing leaves your server and shares only show the page
 > images. See [Privacy](#privacy).
+
+> **Cost: you need your own Anthropic API key, and usage is billed to it.** The
+> default model, `claude-opus-5-5`, is the most capable and the most expensive;
+> set `RMSHARE_MODEL` to pick a cheaper one. `RMSHARE_MAX_PAGES_PER_DAY` (default
+> 200 per user) is the cost cap.
 
 ## How it works
 
@@ -57,9 +67,11 @@ Docker (the image is static, runs as a non-root user, and keeps state in `/data`
 ```sh
 docker build -t rmshare .
 docker run -d --name rmshare -p 127.0.0.1:3004:3004 -v rmshare-data:/data \
-  -e RMSHARE_PUBLIC_URL=https://notes.example.com/share \
-  -e JWT_SECRET_KEY=... -e ANTHROPIC_API_KEY=... rmshare
+  --env-file rmshare.env rmshare
 ```
+
+`rmshare.env` (mode 600, never committed) holds `RMSHARE_PUBLIC_URL=https://notes.example.com/share`,
+`JWT_SECRET_KEY=...` and `ANTHROPIC_API_KEY=...` as plain `NAME=value` lines.
 
 systemd: see [contrib/rmshare.service](contrib/rmshare.service). Put the
 variables in `/etc/rmshare.env` (mode 600).
@@ -115,7 +127,7 @@ still pending are converted on the next start.
 
 ## rmfakecloud setup
 
-1. In `<DATADIR>/users/<user>/.userprofile` add the scope that unlocks the button:
+1. In `<DATADIR>/users/<user>/.userprofile` add the scope that enables the button:
 
    ```yaml
    additionalscopes:
@@ -131,9 +143,10 @@ The `JWT_SECRET_KEY` given to `rmshare` must equal the one rmfakecloud runs with
 
 ## Reverse proxy routing
 
-Only `POST /share/v1/link` must reach `rmshare` on the host the tablet uses. The
-page URLs (`/share/<id>/...`) are opened by your phone, see the note after the
-examples.
+Route only `POST /share/v1/link` to `rmshare` on the host the tablet uses. Do not route
+`/share/*` there, or the share pages become reachable from the internet-facing name. The
+page URLs (`/share/<id>/...`) are opened by your phone and belong on a LAN or VPN-only
+host, see the note after the examples.
 
 ### Cloudflare Tunnel
 
@@ -162,11 +175,21 @@ server {
         proxy_pass http://127.0.0.1:3004;
         proxy_request_buffering off;
     }
-    location /share/ {            # share pages, if served on this host too
-        proxy_pass http://127.0.0.1:3004;
-    }
     location / {
         proxy_pass http://127.0.0.1:3000;   # rmfakecloud
+    }
+}
+```
+
+Optional, on a separate LAN or VPN-only host that the phone can reach (see
+[Which host serves the page?](#which-host-serves-the-page)):
+
+```nginx
+server {
+    server_name notes.lan.example.com;
+    # ... TLS ...
+    location /share/ {
+        proxy_pass http://127.0.0.1:3004;   # GET /share/<id>/... pages
     }
 }
 ```
@@ -175,12 +198,22 @@ server {
 
 ```caddyfile
 notes.example.com {
-    @share path /share/v1/link /share/*
+    @share path /share/v1/link
     handle @share {
         reverse_proxy 127.0.0.1:3004
     }
     handle {
         reverse_proxy 127.0.0.1:3000   # rmfakecloud
+    }
+}
+```
+
+Optional, on a separate LAN or VPN-only host that the phone can reach:
+
+```caddyfile
+notes.lan.example.com {
+    handle /share/* {
+        reverse_proxy 127.0.0.1:3004   # GET /share/<id>/... pages
     }
 }
 ```
@@ -198,11 +231,12 @@ example a LAN-only or VPN-only name. That host needs to route `/share/` to
   Anthropic API.** Review Anthropic's terms and data retention policy for your
   account before using it with sensitive notes.
 - Without the key, no page leaves your server.
-- Share pages are stored unencrypted under `RMSHARE_DATA_DIR`. There is no
-  automatic expiry in v1, so delete `shares/<id>/` directories you no longer need.
+- Share pages are stored unencrypted under `RMSHARE_DATA_DIR`. They are kept forever
+  unless you set `RMSHARE_RETENTION_DAYS`; otherwise delete `shares/<id>/` directories you
+  no longer need.
 - Logs: at the default level the service logs share ids, page counts, the size of
   `MailList` (never the addresses), errors and client addresses of rejected requests. User
-  ids and document ids appear only in debug logs. Conversion errors are logged in full,
+  ids and document ids are not logged. Conversion errors are logged in full,
   and they can contain API URLs and request ids but not your key.
 - Pages send `Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex`, and load
   no external assets.
@@ -227,7 +261,7 @@ example a LAN-only or VPN-only name. That host needs to route `/share/` to
 
 ## Limitations
 
-- `MailList` (addresses typed on the tablet) is stored and logged, but no mail is
+- `MailList` (addresses typed on the tablet) is stored in `meta.json` (only its size is logged), but no mail is
   sent. This is future work.
 - Tested against xochitl 3.29.1.0 and rmfakecloud 0.0.31 only.
 - Handwriting transcription can be wrong. The page always shows the originals.
@@ -236,11 +270,16 @@ example a LAN-only or VPN-only name. That host needs to route `/share/` to
 
 ## Credits
 
-The protocol was reverse-engineered from xochitl. Prior art:
+The protocol was observed on the author's own device, for interoperability. This
+repository contains no reMarkable code, binaries or assets, only the endpoint and field
+names and example values needed to interoperate. Prior art:
 [coleleavitt/remarkable-server](https://github.com/coleleavitt/remarkable-server)
 serves raw PNGs for the same endpoint. Built to sit next to
-[rmfakecloud](https://github.com/ddvk/rmfakecloud) by ddvk and contributors. This
-project is not affiliated with reMarkable AS.
+[rmfakecloud](https://github.com/ddvk/rmfakecloud) by ddvk and contributors.
+
+## Security
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Contributing and testing
 

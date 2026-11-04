@@ -2,8 +2,10 @@
 
 This documents what the reMarkable app (`xochitl` 3.29.1.0) sends for the
 "Convert and Share" toolbar button and what it accepts back. It was derived
-from static analysis of the binary and live captures. Every identifier,
-boundary and length below is a made-up example, not a captured value.
+from observing the author's own device, for interoperability. This repository
+contains no reMarkable code, binaries or assets, only the endpoint and field names
+and example values needed to interoperate. Every identifier, boundary and length
+below is a made-up example, not a captured value.
 
 ## 1. Enabling the button
 
@@ -69,7 +71,7 @@ content-type: image/png
 The metadata part has no `content-length`. Page parts do, and each filename is
 `<page-uuid>.png` where the UUID is one of the entries of `Pages`, in the same
 order. `MailList` is a list of addresses entered on the tablet. This
-implementation stores and logs it but does not send any mail.
+implementation stores it in `meta.json` (logging only its size) but does not send any mail.
 
 ## 3. Response
 
