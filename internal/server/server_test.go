@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/gurghet/rmfakecloud-share/internal/auth"
+	"github.com/gurghet/rmfakecloud-share/internal/convert"
 	"github.com/gurghet/rmfakecloud-share/internal/store"
 	"github.com/gurghet/rmfakecloud-share/internal/worker"
 )
@@ -440,9 +441,14 @@ func TestEndToEndWithFakeConverter(t *testing.T) {
 }
 
 func TestFailedConversionIsShown(t *testing.T) {
-	h := withWorker(t, fakeConv{err: errors.New("upstream said no")})
+	h := withWorker(t, fakeConv{err: convert.Permanent(errors.New("upstream said no (POST https://api.example.invalid/v1/messages request_id=req_123 via 10.0.0.53)"))})
 	id := strings.TrimSuffix(strings.TrimPrefix(linkFrom(t, h.post(t, goodToken(t), twoPageBody(t))), publicURL+"/"), "/")
-	body := waitForPage(t, h, "/share/"+id+"/", "upstream said no")
+	body := waitForPage(t, h, "/share/"+id+"/", "Conversion failed")
+	for _, leak := range []string{"upstream said no", "api.example.invalid", "req_123", "10.0.0.53"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("failed page leaks internal detail %q", leak)
+		}
+	}
 	if strings.Contains(body, `http-equiv="refresh"`) {
 		t.Fatal("failed page must not auto-refresh")
 	}

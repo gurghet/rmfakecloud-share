@@ -43,6 +43,17 @@ type metadata struct {
 // and one "page" part per PNG, in page order. The boundary is quoted and may
 // contain dots and underscores, which mime.ParseMediaType handles.
 func parseUpload(contentType string, body io.Reader, maxPages int) (*Upload, error) {
+	return parseUploadLimits(contentType, body, uploadLimits{MaxPages: maxPages})
+}
+
+// uploadLimits bounds what parseUploadLimits accepts.
+type uploadLimits struct {
+	MaxPages     int
+	MaxPageBytes int64 // 0 = unlimited
+}
+
+func parseUploadLimits(contentType string, body io.Reader, lim uploadLimits) (*Upload, error) {
+	maxPages := lim.MaxPages
 	mt, params, err := mime.ParseMediaType(contentType)
 	if err != nil || mt != "multipart/form-data" || params["boundary"] == "" {
 		return nil, bad("expected multipart/form-data with a boundary")
@@ -78,9 +89,16 @@ func parseUpload(contentType string, body io.Reader, maxPages int) (*Upload, err
 			if len(u.Pages) >= maxPages {
 				return nil, bad("too many pages (max %d)", maxPages)
 			}
-			b, err := io.ReadAll(part)
+			var r io.Reader = part
+			if lim.MaxPageBytes > 0 {
+				r = io.LimitReader(part, lim.MaxPageBytes+1)
+			}
+			b, err := io.ReadAll(r)
 			if err != nil {
 				return nil, asUploadError(err, "reading page")
+			}
+			if lim.MaxPageBytes > 0 && int64(len(b)) > lim.MaxPageBytes {
+				return nil, bad("page %d is too large (max %d bytes)", len(u.Pages)+1, lim.MaxPageBytes)
 			}
 			if !bytes.HasPrefix(b, pngMagic) {
 				return nil, bad("page %d is not a PNG", len(u.Pages)+1)

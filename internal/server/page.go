@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"html/template"
 	"net/http"
-	"unicode/utf8"
+	"strings"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
@@ -22,7 +22,10 @@ func renderMarkdown(src string) (template.HTML, error) {
 	if err := md.Convert([]byte(src), &b); err != nil {
 		return "", err
 	}
-	return template.HTML(b.String()), nil //nolint:gosec // goldmark safe mode output
+	// Every anchor goldmark emits starts with "<a href=" (a literal "<a " in the
+	// source is escaped), so the attribute can be added without parsing the HTML.
+	out := strings.ReplaceAll(b.String(), "<a href=", `<a rel="nofollow noopener noreferrer" href=`)
+	return template.HTML(out), nil //nolint:gosec // goldmark safe mode output
 }
 
 type pageData struct {
@@ -32,20 +35,11 @@ type pageData struct {
 	Failed     bool
 	Disabled   bool
 	Done       bool
-	Error      string
 	Note       template.HTML
 	PageNums   []int
 	Created    string
 	Model      string
 	AutoReload bool
-}
-
-func truncate(s string, n int) string {
-	if utf8.RuneCountInString(s) <= n {
-		return s
-	}
-	r := []rune(s)
-	return string(r[:n]) + "…"
 }
 
 func (s *srv) handlePage(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +67,7 @@ func (s *srv) handlePage(w http.ResponseWriter, r *http.Request) {
 		}
 		d.Done, d.Note = true, html
 	case store.StatusFailed:
-		d.Failed, d.Error = true, truncate(m.Error, 300)
+		d.Failed = true // the cause stays in the log and meta.json, never on the public page
 	default:
 		if s.Enqueuer == nil {
 			d.Disabled = true
@@ -144,7 +138,7 @@ footer{margin-top:24px;font-size:.8rem;color:var(--muted)}
 </header>
 {{if .Pending}}<div class="status pending" role="status">Converting your handwriting to text… this page refreshes by itself.</div>{{end}}
 {{if .Disabled}}<div class="status disabled" role="status">Conversion disabled on this server. The original pages are shown below.</div>{{end}}
-{{if .Failed}}<div class="status failed" role="alert">Conversion failed: {{.Error}}<br>The original pages are shown below.</div>{{end}}
+{{if .Failed}}<div class="status failed" role="alert">Conversion failed. The original pages are shown below.</div>{{end}}
 {{if .Done}}
 <div class="actions">
 <button class="btn" id="copy" type="button" hidden>Copy Markdown</button>
