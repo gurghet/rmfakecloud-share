@@ -72,17 +72,46 @@ if a required one is missing.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `RMSHARE_LISTEN` | `127.0.0.1:3004` | Address to listen on. |
-| `RMSHARE_PUBLIC_URL` | required | Base URL of the share pages as the phone sees it, ending in `/share`, for example `https://notes.example.com/share`. Links returned to the tablet are `<RMSHARE_PUBLIC_URL>/<id>/`. |
+| `RMSHARE_PUBLIC_URL` | required | Base URL of the share pages as the phone sees it. It must end in `/share` (startup fails otherwise), for example `https://notes.example.com/share`. Links returned to the tablet are `<RMSHARE_PUBLIC_URL>/<id>/`. |
 | `RMSHARE_DATA_DIR` | required | Where shares are stored (`shares/<id>/`). |
 | `JWT_SECRET_KEY` | required | The same value rmfakecloud uses. |
 | `RMSHARE_JWT_KEY_MODE` | `rmfakecloud` | `rmfakecloud` derives the HMAC key with PBKDF2 like rmfakecloud v0.0.31. `raw` uses the secret as-is, for other servers. |
 | `ANTHROPIC_API_KEY` | empty | Enables conversion. Empty means shares work but show "conversion disabled". |
 | `RMSHARE_MODEL` | `claude-opus-5-5` | Model used for transcription. |
-| `RMSHARE_MAX_BODY_BYTES` | `67108864` (64 MiB) | Largest accepted upload. Larger requests get 413. |
+| `RMSHARE_MAX_BODY_BYTES` | `20971520` (20 MiB) | Largest accepted upload. Larger requests get 413. |
 | `RMSHARE_MAX_PAGES` | `50` | Most pages per share. More gets 400. |
+| `RMSHARE_MAX_PAGE_BYTES` | `5000000` | Largest single page image. The Anthropic API accepts about 5 MB per image, so a bigger page is refused with 400 instead of failing later. |
+| `RMSHARE_MAX_CONCURRENT_UPLOADS` | `2` | Uploads read in parallel. Each is buffered in memory, so this bounds RAM on a Raspberry Pi. An upload that cannot get a slot within 30 s gets 503 with `Retry-After`. |
+| `RMSHARE_MAX_PAGES_PER_DAY` | `200` | Pages converted per user in a rolling 24 hours. `0` disables the limit. Over the limit, `POST /share/v1/link` answers 429 with `Retry-After`. How xochitl reacts to a 429 has not been tested. |
+| `RMSHARE_RETENTION_DAYS` | `0` | Delete finished shares older than this many days (checked hourly). `0` keeps everything. |
+| `RMSHARE_SHUTDOWN_GRACE` | `90s` | On SIGTERM, how long a conversion in flight may finish before it is cancelled. systemd's `TimeoutStopSec` must be larger (the unit uses 120 s). |
 
 If you start the service without an API key and add one later, shares that were
 still pending are converted on the next start.
+
+### Conversion, retries and limits
+
+- Pages are sent to the API in batches of at most 20 images (and about 20 MB), and the
+  Markdown of the batches is joined in page order. The 20-image batch size keeps every
+  request under the API's stricter per-image size cap that applies above 20 images
+  (a Paper Pro page is 1620x2160). These API limits were quoted from the Anthropic
+  documentation as remembered and **were not re-verified against the live docs**; check
+  [the vision docs](https://platform.claude.com/docs/en/build-with-claude/vision) if you
+  change the defaults.
+- Temporary problems (network, timeouts, HTTP 408, 429, 5xx and 529) leave the share
+  pending. It is retried with exponential backoff from 30 s up to 15 minutes, also across
+  restarts. Permanent problems (other 4xx, a refusal, an empty result) mark the share
+  failed. The public page only says "Conversion failed"; the cause is in the service log
+  and in `meta.json`.
+- A failed share is never retried by page visitors, because that would let anyone with a
+  link trigger paid work. To retry one, run it on the server with the same
+  `RMSHARE_DATA_DIR`:
+
+  ```sh
+  rmshare -retry <share-id>
+  ```
+
+  The running service notices the share within a minute.
 
 ## rmfakecloud setup
 
@@ -171,14 +200,20 @@ example a LAN-only or VPN-only name. That host needs to route `/share/` to
 - Without the key, no page leaves your server.
 - Share pages are stored unencrypted under `RMSHARE_DATA_DIR`. There is no
   automatic expiry in v1, so delete `shares/<id>/` directories you no longer need.
+- Logs: at the default level the service logs share ids, page counts, the size of
+  `MailList` (never the addresses), errors and client addresses of rejected requests. User
+  ids and document ids appear only in debug logs. Conversion errors are logged in full,
+  and they can contain API URLs and request ids but not your key.
 - Pages send `Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex`, and load
   no external assets.
 
 ## Security model
 
 - **Uploads are authenticated.** `POST /share/v1/link` requires a Bearer JWT, HS256
-  only (`none` and other algorithms are rejected), with a valid signature, `exp` and
-  `nbf` (30 s skew allowed), and `share-url` in `scopes`. Tokens are never logged.
+  only (`none` and other algorithms are rejected), with a valid signature, a present `exp` that has not passed, an `nbf` that, if the token has one, is not in the
+  future (30 s skew allowed for both), and `share-url` in `scopes`. Tokens are never logged. No issuer or
+  token-type check is needed: rmfakecloud's device tokens carry no `scopes` claim, so the
+  `share-url` requirement already excludes them.
 - **Reading is a capability URL.** `GET /share/<id>/...` is unauthenticated: anyone
   who has the link can read the note. IDs are 128 random bits (base64url) and are
   validated against a strict pattern before touching the filesystem. Treat links like
@@ -187,7 +222,8 @@ example a LAN-only or VPN-only name. That host needs to route `/share/` to
   and the pages carry a strict `Content-Security-Policy` (no external sources, script
   and style only with a per-response nonce). A note containing `<script>` is shown
   as inert text or dropped.
-- Uploads are limited by size (`RMSHARE_MAX_BODY_BYTES`), page count and PNG magic bytes.
+- Uploads are limited by size (`RMSHARE_MAX_BODY_BYTES`, `RMSHARE_MAX_PAGE_BYTES`), page count, PNG magic bytes, concurrency and a per-user daily page quota.
+- Rendered links get `rel="nofollow noopener noreferrer"`, and the CSP blocks external images.
 
 ## Limitations
 
@@ -195,7 +231,7 @@ example a LAN-only or VPN-only name. That host needs to route `/share/` to
   sent. This is future work.
 - Tested against xochitl 3.29.1.0 and rmfakecloud 0.0.31 only.
 - Handwriting transcription can be wrong. The page always shows the originals.
-- No expiry or deletion API for old shares.
+- Old shares are only removed by `RMSHARE_RETENTION_DAYS`; there is no deletion API.
 - If the request is retried by the tablet, each retry creates a new share.
 
 ## Credits
@@ -206,13 +242,26 @@ serves raw PNGs for the same endpoint. Built to sit next to
 [rmfakecloud](https://github.com/ddvk/rmfakecloud) by ddvk and contributors. This
 project is not affiliated with reMarkable AS.
 
-## Development
+## Contributing and testing
 
 ```sh
 gofmt -l .          # must print nothing
 go vet ./...
 go test -race -count=1 ./...
+go vet -tags live ./...   # the live test must compile
 ```
+
+The unit tests never touch the network. A separate smoke test sends one synthetic page
+(the words "HELLO WORLD" drawn in a built-in bitmap font) to the real Anthropic API. It is
+behind the `live` build tag and skipped unless you opt in, because it costs a few cents:
+
+```sh
+RMSHARE_LIVE_TEST=1 ANTHROPIC_API_KEY=... go test -tags live -run TestLive -v ./internal/convert/
+# or with a secrets manager, for example:
+RMSHARE_LIVE_TEST=1 doppler run -- go test -tags live -run TestLive -v ./internal/convert/
+```
+
+Writes use temp file, fsync and rename. Behaviour that needs a power cut to observe (fsync) is not covered by tests.
 
 ## Licence
 

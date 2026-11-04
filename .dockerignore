@@ -1,3 +1,11 @@
-.git
-data
-rmshare
+# Allowlist: only what the build needs enters the build context.
+*
+!go.mod
+!go.sum
+!cmd
+!internal
+# Never, even inside the allowed directories.
+**/.env
+**/*.env
+**/.env.*
+**/*_test.go

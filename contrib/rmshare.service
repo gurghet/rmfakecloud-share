@@ -9,8 +9,12 @@ ExecStart=/usr/local/bin/rmshare
 # Holds JWT_SECRET_KEY, ANTHROPIC_API_KEY, RMSHARE_PUBLIC_URL, ... (chmod 600).
 EnvironmentFile=/etc/rmshare.env
 Environment=RMSHARE_DATA_DIR=/var/lib/rmshare
+# With ProtectSystem=strict only /var/lib/rmshare (StateDirectory) is writable. If
+# /etc/rmshare.env points RMSHARE_DATA_DIR elsewhere, add ReadWritePaths=<that path>.
 Restart=on-failure
 RestartSec=5
+# Must exceed RMSHARE_SHUTDOWN_GRACE (default 90s) so a conversion in flight can finish.
+TimeoutStopSec=120
 
 # Runs as a transient unprivileged user; state lives in /var/lib/rmshare.
 DynamicUser=yes

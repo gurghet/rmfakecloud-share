@@ -31,7 +31,7 @@ const (
 	secret    = "synthetic-secret-for-tests"
 	publicURL = "https://notes.example.com/share"
 	// Mirrors the quoted boundary with dots and underscores seen from xochitl.
-	wireBoundary = "boundary_.oOo._f2NyZPUjFTnDwQ9PIDSHS7MfwPG8ZGpD"
+	wireBoundary = "boundary_.oOo._EXAMPLEboundaryEXAMPLEboundary0000"
 )
 
 func tinyPNG(t *testing.T, shade uint8) []byte {

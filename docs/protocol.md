@@ -2,8 +2,8 @@
 
 This documents what the reMarkable app (`xochitl` 3.29.1.0) sends for the
 "Convert and Share" toolbar button and what it accepts back. It was derived
-from static analysis of the binary and live captures. All values below are
-synthetic examples.
+from static analysis of the binary and live captures. Every identifier,
+boundary and length below is a made-up example, not a captured value.
 
 ## 1. Enabling the button
 
@@ -31,8 +31,8 @@ POST /share/v1/link HTTP/1.1
 Host: <tectonic>.tectonic.remarkable.com
 Authorization: Bearer <user JWT>
 User-Agent: xochitl/3.29.1.0 (codex 6.0.112)
-Content-Type: multipart/form-data; boundary="boundary_.oOo._f2NyZPUjFTnDwQ9PIDSHS7MfwPG8ZGpD"
-Content-Length: 167453
+Content-Type: multipart/form-data; boundary="boundary_.oOo._EXAMPLEboundaryEXAMPLEboundary0000"
+Content-Length: 170000
 ```
 
 The tablet's DNS or proxy setup for rmfakecloud already sends the host to the
@@ -46,7 +46,7 @@ user's own server. Notes on the encoding:
 - Parts, in order: one `metadata` part, then one `page` part per page.
 
 ```
---boundary_.oOo._f2NyZPUjFTnDwQ9PIDSHS7MfwPG8ZGpD
+--boundary_.oOo._EXAMPLEboundaryEXAMPLEboundary0000
 content-disposition: form-data; name="metadata"
 content-type: application/json
 
@@ -57,13 +57,13 @@ content-type: application/json
         "9a9e0001-0000-4000-8000-000000000001"
     ]
 }
---boundary_.oOo._f2NyZPUjFTnDwQ9PIDSHS7MfwPG8ZGpD
-content-length: 166912
+--boundary_.oOo._EXAMPLEboundaryEXAMPLEboundary0000
+content-length: 169000
 content-disposition: form-data; name="page"; filename="9a9e0001-0000-4000-8000-000000000001.png"
 content-type: image/png
 
 <PNG bytes>
---boundary_.oOo._f2NyZPUjFTnDwQ9PIDSHS7MfwPG8ZGpD--
+--boundary_.oOo._EXAMPLEboundaryEXAMPLEboundary0000--
 ```
 
 The metadata part has no `content-length`. Page parts do, and each filename is
