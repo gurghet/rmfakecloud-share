@@ -24,20 +24,35 @@ func mockAPI(t *testing.T, status int, respBody string, cap *captured) *httptest
 		cap.apiKey = r.Header.Get("x-api-key")
 		cap.path = r.URL.Path
 		_ = json.Unmarshal(b, &cap.body)
-		w.Header().Set("content-type", "application/json")
+		if status == 200 {
+			w.Header().Set("content-type", "text/event-stream")
+		} else {
+			w.Header().Set("content-type", "application/json")
+		}
 		w.WriteHeader(status)
 		_, _ = io.WriteString(w, respBody)
 	}))
 }
 
+// okResponse builds a streaming (SSE) Messages API response, which is what the
+// converter now requests.
 func okResponse(text, stop string) string {
-	b, _ := json.Marshal(map[string]any{
-		"id": "msg_test", "type": "message", "role": "assistant", "model": "claude-opus-5-5",
-		"content":     []any{map[string]any{"type": "text", "text": text}},
-		"stop_reason": stop, "stop_sequence": nil,
-		"usage": map[string]any{"input_tokens": 10, "output_tokens": 5},
-	})
-	return string(b)
+	ev := func(name string, v any) string {
+		b, _ := json.Marshal(v)
+		return "event: " + name + "\ndata: " + string(b) + "\n\n"
+	}
+	var sb strings.Builder
+	sb.WriteString(ev("message_start", map[string]any{"type": "message_start", "message": map[string]any{
+		"id": "msg_test", "type": "message", "role": "assistant", "model": "claude-opus-5-5", "content": []any{},
+		"stop_reason": nil, "stop_sequence": nil, "usage": map[string]any{"input_tokens": 10, "output_tokens": 1}}}))
+	if text != "" {
+		sb.WriteString(ev("content_block_start", map[string]any{"type": "content_block_start", "index": 0, "content_block": map[string]any{"type": "text", "text": ""}}))
+		sb.WriteString(ev("content_block_delta", map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "text_delta", "text": text}}))
+		sb.WriteString(ev("content_block_stop", map[string]any{"type": "content_block_stop", "index": 0}))
+	}
+	sb.WriteString(ev("message_delta", map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": stop, "stop_sequence": nil}, "usage": map[string]any{"output_tokens": 5}}))
+	sb.WriteString(ev("message_stop", map[string]any{"type": "message_stop"}))
+	return sb.String()
 }
 
 func TestClaudeRequestShapeAndResponse(t *testing.T) {
