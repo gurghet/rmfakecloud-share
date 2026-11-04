@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -43,7 +44,11 @@ type Meta struct {
 // Store is a filesystem-backed share store.
 //
 // Layout: <root>/shares/<id>/{meta.json,note.md,pages/NN.png}
-type Store struct{ root string }
+type Store struct {
+	root string
+	// Log receives loud reports about unreadable shares. Defaults to slog.Default().
+	Log *slog.Logger
+}
 
 var idRe = regexp.MustCompile(`^[A-Za-z0-9_-]{22}$`)
 
@@ -53,7 +58,7 @@ func New(dataDir string) (*Store, error) {
 	if err := os.MkdirAll(root, 0o750); err != nil {
 		return nil, err
 	}
-	return &Store{root: root}, nil
+	return &Store{root: root, Log: slog.Default()}, nil
 }
 
 // NewID returns a fresh 128-bit base64url id without padding.
@@ -87,6 +92,13 @@ func writeAtomic(path string, data []byte) error {
 		os.Remove(name)
 		return err
 	}
+	// Flush to stable storage before the rename so a power cut on an SD card
+	// cannot leave an empty file under the final name.
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(name)
 		return err
@@ -99,7 +111,17 @@ func writeAtomic(path string, data []byte) error {
 		os.Remove(name)
 		return err
 	}
-	return nil
+	return syncDir(filepath.Dir(path))
+}
+
+// syncDir fsyncs a directory so a rename inside it is durable.
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 func pageName(n int) string { return fmt.Sprintf("%02d.png", n) }
@@ -245,8 +267,10 @@ func (s *Store) MarkFailed(id, msg string) error {
 	return s.writeMeta(m)
 }
 
-// Pending lists ids of shares whose status is pending, oldest first.
-func (s *Store) Pending() ([]string, error) {
+// scan loads every share's meta. A share whose meta.json cannot be parsed is
+// reported at ERROR level and quarantined (meta.json is renamed to
+// meta.json.corrupt) so it is neither retried forever nor silently ignored.
+func (s *Store) scan() ([]Meta, error) {
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
 		return nil, err
@@ -257,15 +281,75 @@ func (s *Store) Pending() ([]string, error) {
 			continue
 		}
 		m, err := s.Get(e.Name())
-		if err != nil || m.Status != StatusPending {
+		if errors.Is(err, ErrNotFound) {
+			continue // incomplete upload (no meta.json yet) or already quarantined
+		}
+		if err != nil {
+			path := filepath.Join(s.root, e.Name(), "meta.json")
+			qerr := os.Rename(path, path+".corrupt")
+			s.Log.Error("corrupt share metadata: quarantined", "share", e.Name(), "err", err, "quarantine_err", qerr)
 			continue
 		}
 		metas = append(metas, m)
 	}
-	sort.Slice(metas, func(i, j int) bool { return metas[i].Created.Before(metas[j].Created) })
-	ids := make([]string, len(metas))
-	for i, m := range metas {
+	return metas, nil
+}
+
+// Pending lists ids of shares whose status is pending, oldest first.
+func (s *Store) Pending() ([]string, error) {
+	metas, err := s.scan()
+	if err != nil {
+		return nil, err
+	}
+	var pending []Meta
+	for _, m := range metas {
+		if m.Status == StatusPending {
+			pending = append(pending, m)
+		}
+	}
+	sort.Slice(pending, func(i, j int) bool { return pending[i].Created.Before(pending[j].Created) })
+	ids := make([]string, len(pending))
+	for i, m := range pending {
 		ids[i] = m.ID
 	}
 	return ids, nil
+}
+
+// ErrNotFailed is returned by Requeue for shares that are not in failed state.
+var ErrNotFailed = errors.New("share is not failed")
+
+// Requeue moves a failed share back to pending so the worker converts it again.
+func (s *Store) Requeue(id string) error {
+	m, err := s.Get(id)
+	if err != nil {
+		return err
+	}
+	if m.Status != StatusFailed {
+		return ErrNotFailed
+	}
+	m.Status, m.Error = StatusPending, ""
+	return s.writeMeta(m)
+}
+
+// List returns the metadata of every readable share.
+func (s *Store) List() ([]Meta, error) { return s.scan() }
+
+// Prune deletes done or failed shares created more than maxAge before now.
+// Pending shares are never deleted. It returns the number removed.
+func (s *Store) Prune(now time.Time, maxAge time.Duration) (int, error) {
+	metas, err := s.scan()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, m := range metas {
+		if m.Status == StatusPending || now.Sub(m.Created) <= maxAge {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(s.root, m.ID)); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
 }
