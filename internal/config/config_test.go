@@ -31,7 +31,7 @@ func TestDefaultsAndNormalisation(t *testing.T) {
 	if c.JWTKeyMode != auth.KeyModeRmfakecloud {
 		t.Errorf("JWTKeyMode = %q", c.JWTKeyMode)
 	}
-	if c.MaxBodyBytes != 64<<20 || c.MaxPages != 50 {
+	if c.MaxBodyBytes != 20<<20 || c.MaxPages != 50 {
 		t.Errorf("limits = %d, %d", c.MaxBodyBytes, c.MaxPages)
 	}
 	if c.AnthropicKey != "" {
