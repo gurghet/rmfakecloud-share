@@ -1,0 +1,7 @@
+/rmshare
+/bin/
+/dist/
+*.test
+*.out
+.env
+/data/
