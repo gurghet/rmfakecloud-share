@@ -80,7 +80,7 @@ if a required one is missing.
 | `RMSHARE_MODEL` | `claude-opus-5-5` | Model used for transcription. |
 | `RMSHARE_MAX_BODY_BYTES` | `20971520` (20 MiB) | Largest accepted upload. Larger requests get 413. |
 | `RMSHARE_MAX_PAGES` | `50` | Most pages per share. More gets 400. |
-| `RMSHARE_MAX_PAGE_BYTES` | `5000000` | Largest single page image. The Anthropic API accepts about 5 MB per image, so a bigger page is refused with 400 instead of failing later. |
+| `RMSHARE_MAX_PAGE_BYTES` | `5000000` | Largest single page image, in raw bytes. The default (about 6.7 MB once base64-encoded) is under the Claude API's 10 MB base64 limit per image, so a bigger page is refused with 400 instead of failing later. |
 | `RMSHARE_MAX_CONCURRENT_UPLOADS` | `2` | Uploads read in parallel. Each is buffered in memory, so this bounds RAM on a Raspberry Pi. An upload that cannot get a slot within 30 s gets 503 with `Retry-After`. |
 | `RMSHARE_MAX_PAGES_PER_DAY` | `200` | Pages converted per user in a rolling 24 hours. `0` disables the limit. Over the limit, `POST /share/v1/link` answers 429 with `Retry-After`. How xochitl reacts to a 429 has not been tested. |
 | `RMSHARE_RETENTION_DAYS` | `0` | Delete finished shares older than this many days (checked hourly). `0` keeps everything. |
@@ -92,12 +92,12 @@ still pending are converted on the next start.
 ### Conversion, retries and limits
 
 - Pages are sent to the API in batches of at most 20 images (and about 20 MB), and the
-  Markdown of the batches is joined in page order. The 20-image batch size keeps every
-  request under the API's stricter per-image size cap that applies above 20 images
-  (a Paper Pro page is 1620x2160). These API limits were quoted from the Anthropic
-  documentation as remembered and **were not re-verified against the live docs**; check
-  [the vision docs](https://platform.claude.com/docs/en/build-with-claude/vision) if you
-  change the defaults.
+  Markdown of the batches is joined in page order. Batching keeps each response well
+  under the output-token limit. For reference,
+  [the vision docs](https://platform.claude.com/docs/en/build-with-claude/vision)
+  (checked 2026-11-04) allow, on the Claude API, 10 MB per image (base64-encoded),
+  8000x8000 px per image, and at most 3000 px per side when a request carries more than
+  20 images. A Paper Pro page is 1620x2160 px, about 170 KB as PNG.
 - Temporary problems (network, timeouts, HTTP 408, 429, 5xx and 529) leave the share
   pending. It is retried with exponential backoff from 30 s up to 15 minutes, also across
   restarts. Permanent problems (other 4xx, a refusal, an empty result) mark the share
