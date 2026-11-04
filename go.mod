@@ -1,6 +1,8 @@
 module github.com/gurghet/rmfakecloud-share
 
-go 1.25.0
+go 1.26.0
+
+toolchain go1.27.3
 
 require (
 	github.com/anthropics/anthropic-sdk-go/v2 v2.6.0
