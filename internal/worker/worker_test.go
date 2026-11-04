@@ -3,12 +3,14 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gurghet/rmfakecloud-share/internal/convert"
 	"github.com/gurghet/rmfakecloud-share/internal/store"
 )
 
@@ -73,7 +75,7 @@ func TestPendingToDoneWritesNote(t *testing.T) {
 
 func TestConverterErrorMarksFailed(t *testing.T) {
 	s, _ := store.New(t.TempDir())
-	w := New(s, &fakeConv{err: errors.New("upstream exploded")}, quiet())
+	w := New(s, &fakeConv{err: convert.Permanent(errors.New("upstream exploded"))}, quiet())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	_ = w.Start(ctx)
@@ -126,11 +128,16 @@ func TestEnqueueDoesNotBlockWhileConverting(t *testing.T) {
 	defer cancel()
 	_ = w.Start(ctx)
 	defer close(release)
+	// In-flight work now finishes after cancel, so wait for it before TempDir cleanup.
+	t.Cleanup(func() { w.Shutdown(2 * time.Second) })
 	finished := make(chan struct{})
 	go func() {
+		// One real share keeps the worker busy; the rest are synthetic ids so the
+		// loop does not pay an fsync per share (the store now flushes to disk).
+		m, _ := s.Create(store.Meta{DocID: "d"}, [][]byte{[]byte("p")})
+		w.Enqueue(m.ID)
 		for i := 0; i < 2000; i++ {
-			m, _ := s.Create(store.Meta{DocID: "d"}, [][]byte{[]byte("p")})
-			w.Enqueue(m.ID)
+			w.Enqueue(fmt.Sprintf("synthetic-%d", i))
 		}
 		close(finished)
 	}()
