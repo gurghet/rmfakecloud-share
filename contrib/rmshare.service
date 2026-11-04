@@ -1,0 +1,45 @@
+[Unit]
+Description=rmfakecloud-share (reMarkable "Convert and Share" sidecar)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/rmshare
+# Holds JWT_SECRET_KEY, ANTHROPIC_API_KEY, RMSHARE_PUBLIC_URL, ... (chmod 600).
+EnvironmentFile=/etc/rmshare.env
+Environment=RMSHARE_DATA_DIR=/var/lib/rmshare
+Restart=on-failure
+RestartSec=5
+
+# Runs as a transient unprivileged user; state lives in /var/lib/rmshare.
+DynamicUser=yes
+StateDirectory=rmshare
+StateDirectoryMode=0750
+UMask=0027
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

@@ -3,7 +3,11 @@ module github.com/gurghet/rmfakecloud-share
 go 1.25.0
 
 require (
-	github.com/anthropics/anthropic-sdk-go/v2 v2.6.0 // indirect
+	github.com/anthropics/anthropic-sdk-go/v2 v2.6.0
+	github.com/yuin/goldmark v1.8.7
+)
+
+require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
@@ -15,12 +19,10 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	github.com/yuin/goldmark v1.8.7 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/otel v1.33.0 // indirect
 	go.opentelemetry.io/otel/metric v1.33.0 // indirect
 	go.opentelemetry.io/otel/trace v1.33.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
-	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
 )
