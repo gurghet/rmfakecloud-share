@@ -2,6 +2,7 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -352,4 +353,23 @@ func (s *Store) Prune(now time.Time, maxAge time.Duration) (int, error) {
 		n++
 	}
 	return n, nil
+}
+
+// PruneLoop calls Prune every interval until ctx is done. now is injectable for tests.
+func (s *Store) PruneLoop(ctx context.Context, every, maxAge time.Duration, now func() time.Time) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			n, err := s.Prune(now(), maxAge)
+			if err != nil {
+				s.Log.Error("retention cleanup failed", "err", err)
+			} else if n > 0 {
+				s.Log.Info("retention cleanup removed old shares", "count", n)
+			}
+		}
+	}
 }

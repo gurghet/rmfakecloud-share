@@ -2,11 +2,13 @@ package store
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -108,4 +110,34 @@ func TestCorruptMetaIsReportedAndQuarantinedNotSkippedSilently(t *testing.T) {
 	if _, err := s.Get(bad.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("quarantined share err = %v, want ErrNotFound", err)
 	}
+}
+
+func TestPruneLoopRemovesExpiredSharesUsingInjectedClock(t *testing.T) {
+	s := newStore(t)
+	created := time.Now()
+	m, _ := s.Create(Meta{DocID: "d", Created: created}, [][]byte{[]byte("x")})
+	_ = s.MarkDone(m.ID, "n", "m")
+
+	var mu sync.Mutex
+	clock := created.Add(time.Hour) // not yet expired
+	now := func() time.Time { mu.Lock(); defer mu.Unlock(); return clock }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.PruneLoop(ctx, 10*time.Millisecond, 24*time.Hour, now)
+
+	time.Sleep(60 * time.Millisecond)
+	if _, err := s.Get(m.ID); err != nil {
+		t.Fatalf("share removed too early: %v", err)
+	}
+	mu.Lock()
+	clock = created.Add(25 * time.Hour)
+	mu.Unlock()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := s.Get(m.ID); errors.Is(err, ErrNotFound) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("share older than retention was never removed")
 }
