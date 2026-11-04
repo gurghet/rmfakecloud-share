@@ -38,7 +38,7 @@ Protocol details are in [docs/protocol.md](docs/protocol.md).
 - A working rmfakecloud (tested with 0.0.31) and a tablet running `xochitl`
   3.29.1.0 that already syncs with it.
 - A reverse proxy in front of both (Cloudflare Tunnel, nginx, Caddy, ...).
-- Go 1.25 or newer to build from source, or Docker.
+- Go 1.26 or newer to build from source (go.mod suggests the go1.27.3 toolchain, which `go` downloads automatically), or Docker.
 - Optional: an Anthropic API key for the transcription.
 
 ## Install
