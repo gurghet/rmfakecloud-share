@@ -52,7 +52,7 @@ func Load(getenv func(string) string) (Config, error) {
 		MaxBodyBytes: 20 << 20,
 		MaxPages:     50,
 
-		MaxPageBytes:         5_000_000, // Anthropic accepts at most 5 MB per image
+		MaxPageBytes:         5_000_000, // raw bytes; ~6.7 MB as base64, under the Claude API's 10 MB base64 per-image limit
 		MaxConcurrentUploads: 2,
 		MaxPagesPerDay:       200,
 		ShutdownGrace:        90 * time.Second,

@@ -52,10 +52,11 @@ func classify(err error) error {
 // run into HTTP timeouts.
 const maxOutputTokens = 64000
 
-// Defaults for one request. The API accepts at most 32 MB per request, and the
-// 2000x2000 px per-image cap applies when a request holds more than 20 images
-// (a Paper Pro page is 1620x2160), so batches stay at 20 images. Raw bytes are
-// capped well below 32 MB because base64 adds a third.
+// Defaults for one request. On the Claude API an image may be 10 MB base64 and
+// 8000x8000 px, and 3000 px per side when a request has more than 20 images
+// (a Paper Pro page is 1620x2160); see platform.claude.com/docs/en/build-with-claude/vision,
+// checked 2026-11-04. Batches stay at 20 images, and raw bytes per request are
+// capped at 20 MiB because base64 adds a third.
 const (
 	defaultBatchImages = 20
 	defaultBatchBytes  = 20 << 20
