@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.27.3
 
 require (
-	github.com/anthropics/anthropic-sdk-go/v2 v2.6.0
+	github.com/anthropics/anthropic-sdk-go/v2 v2.9.0
 	github.com/yuin/goldmark v1.8.7
 )
 
